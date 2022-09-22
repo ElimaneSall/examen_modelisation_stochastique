@@ -24,9 +24,19 @@ public class CallCenter2 {
    ArrayList<RandomVariateGen> genPatience = new ArrayList<RandomVariateGen>();
    
    LinkedList<Call> waitList1 = new LinkedList<Call> ();
-   LinkedList<Call> servList1 = new LinkedList<Call> ();
    LinkedList<Call> waitList2 = new LinkedList<Call> ();
-   LinkedList<Call> servList2 = new LinkedList<Call> ();
+   
+   LinkedList<Agents> nBusyAgents1 = new LinkedList<Agents> ();
+   LinkedList<Agents> nBusyAgents2 = new LinkedList<Agents> ();
+   
+   LinkedList<Agents> nFreeAgents1 = new LinkedList<Agents> ();
+   LinkedList<Agents> nFreeAgents2 = new LinkedList<Agents> ();
+   
+   ArrayList<LinkedList<Agents>> nBusyAgent = new ArrayList<LinkedList<Agents>>();
+   ArrayList<LinkedList<Agents>> nFreeAgent = new ArrayList<LinkedList<Agents>>();
+   
+    Double [][] AgentsOccupations ;
+
    
    ArrayList<LinkedList<Call>> waitList = new ArrayList<LinkedList<Call>>();
    
@@ -39,6 +49,8 @@ public class CallCenter2 {
    
    Double s=20.0/60.0;
    int []  abandons= {0,0};
+   int nAgents1=31;
+   int nAgents2=6;
    int []nAgents= {31,6};           // Number of agents in current period.
    int [] nBusys= {0,0};             // Number of agents occupied;
    int [] nArrivals= {0,0};         // Number of arrivals today;         // Number of abandonments during the day.
@@ -60,6 +72,15 @@ public class CallCenter2 {
 
    public CallCenter2 (Double [] lambda, Double [] mu, Double [] nu) throws IOException {
 	   
+	   waitList.add(0, waitList1);
+	   waitList.add(1, waitList2);
+	   
+	   nBusyAgent.add(0,nBusyAgents1);
+	   nBusyAgent.add(1,nBusyAgents2);
+	   
+	   nFreeAgent.add(0,nFreeAgents1);
+	   nFreeAgent.add(1,nFreeAgents2);
+	   
 	   for(int i=0; i<2;i++) {
 		   genArr.add(i,new ExponentialGen (new MRG32k3a(), lambda[i]));
 		   genPatience.add(i,new ExponentialGen (new MRG32k3a(), nu[i]));
@@ -69,8 +90,18 @@ public class CallCenter2 {
 		   genServ.add(i,new ExponentialGen(new MRG32k3a(), mu[i]));
 	   }
 	   
-	   waitList.add(0, waitList1);
-	   waitList.add(1, waitList2);
+	   for(int i=0; i<nAgents1;i++) {
+		   nFreeAgent.get(0).addLast(new Agents(0,i));
+		   //AgentsOccupations[0]= new Double [nAgents1];
+	   }
+	   
+	   for(int i=0; i<nAgents2;i++) {
+		   nFreeAgent.get(1).addLast(new Agents(1,i));
+		   //AgentsOccupations[1]= new Double [nAgents2];
+		   
+	   }
+	   
+	   
    }
 
 
@@ -82,16 +113,23 @@ public class CallCenter2 {
 
       public Call(int type) {
     	 this.type=type;
-         serviceTime = genServ.get(type-1).nextDouble(); // Generate service time.
-         if (nBusys[type-1]< nAgents[type-1]) {           // Start service immediately.
-            nBusys[type-1]++;
+         if (nBusyAgent.get(type-1).size() < nAgents[type-1]) {           // Start service immediately.
+        	Agents agent = nFreeAgent.get(type-1).removeFirst();
+        	serviceTime = genServ.get(servTimeGen(type-1,agent.type)).nextDouble(); // Generate service time.
+        	nBusyAgent.get(agent.type).addLast(agent);
+        	
+            //nBusys[type-1]++;
             Callwait[type-1].add (0.0);
-            new CallCompletion(type-1).schedule (serviceTime);
+            new CallCompletion(type-1,agent).schedule (serviceTime);
          }
-         else if(nBusys[type%2]< nAgents[type%2]) {
-        	 nBusys[type%2]++;
+         else if(nBusyAgent.get(type%2).size() < nAgents[type%2]) {
+        	Agents agent = nFreeAgent.get(type%2).removeFirst();
+         	serviceTime = genServ.get(servTimeGen(type%2,agent.type)).nextDouble(); // Generate service time.
+        	nBusyAgent.get(agent.type).addLast(agent);
+        	 
+        	 //nBusys[type%2]++;
              Callwait[type%2].add (0.0);
-             new CallCompletion(type-1).schedule (serviceTime);	 
+             new CallCompletion(type-1,agent).schedule (serviceTime);	 
          }
          else {                         // Join the queue.
             patienceTime = generPatience(type-1);
@@ -100,21 +138,38 @@ public class CallCenter2 {
          }
       }
       
-      public void endWait() {
+      public void endWait(Agents Agent) {
          double wait = Sim.time() - arrivalTime;
          if (patienceTime < wait) { // Caller has abandoned.
             abandons[type-1]++;
             wait = patienceTime;    // Effective waiting time.
          }
          else {
-            nBusys[type-1]++;
-            new CallCompletion(type-1).schedule (serviceTime);
+         	//serviceTime = genServ.get(servTimeGen(type-1,Agent.type)).nextDouble(); // Generate service time.
+            nBusyAgent.get(Agent.type).addLast(Agent);
+            new CallCompletion(type-1,Agent).schedule (serviceTime);
          }
          if (wait < s) nGoodQoS[type-1]++;
          Callwait[type-1].add (wait);
       }
+      
+     int servTimeGen(int callType,int agentType){
+    	 if(callType==agentType) return (int)callType; 
+    	 else if(callType < agentType) return 2;
+    	 else return 3;
+     }
    } 
 
+   class Agents{
+	   int type;
+	   int number;
+	   String name;
+	   public Agents(int type,int number) {
+		   this.type= type;
+		   this.number=number;
+		   this.name = "agent"+type;
+	   }
+   }
    // Event: A call arrives.
    class Arrival extends Event {
 	  int type ;
@@ -131,19 +186,28 @@ public class CallCenter2 {
    // Event: A call is completed.
    class CallCompletion extends Event {
 	   int type;
-	   public CallCompletion(int type) {
+	   Agents agent;
+	   public CallCompletion(int type, Agents agent) {
 		   this.type=type;
+		   this.agent =agent;
 	   }
-      public void actions() { nBusys[type]--;   checkQueue(type); }
+      public void actions() {
+    	  nBusyAgent.get(agent.type).remove(agent);
+    	  nFreeAgent.get(agent.type).add(agent);  
+    	  checkQueue(agent.type); 
+    	 
+    	  }
    }
 
    // Start answering new calls if agents are free and queue not empty.
    public void checkQueue(int type) {
-      if(waitList.get(type).size() > 0 && nBusys[type] < nAgents[type]) {
-    	  ((Call)waitList.get(type).removeFirst()).endWait();
+      if(waitList.get(type).size() > 0 && nBusyAgent.get(type).size() < nAgents[type]) {
+    	  Agents agent = nBusyAgent.get(type).removeFirst();
+    	  ((Call)waitList.get(type).removeFirst()).endWait(agent);
       }
-      else if (waitList.get((type+1)%2).size() > 0 && nBusys[(type+1)%2] < nAgents[(type+1)%2]){
-    	  ((Call)waitList.get((type+1)%2).removeFirst()).endWait();
+      else if (waitList.get((type+1)%2).size() > 0 && nBusyAgent.get((type+1)%2).size() < nAgents[(type+1)%2]){
+    	  Agents agent = nBusyAgent.get((type+1)%2).removeFirst();
+    	  ((Call)waitList.get((type+1)%2).removeFirst()).endWait(agent);
       }
          
    }
