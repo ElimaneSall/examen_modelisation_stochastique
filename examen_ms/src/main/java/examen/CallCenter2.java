@@ -2,8 +2,12 @@ package examen;
 import umontreal.ssj.simevents.*;
 import umontreal.ssj.rng.*;
 import umontreal.ssj.randvar.*;
+import umontreal.ssj.charts.CustomHistogramDataset;
+import umontreal.ssj.charts.HistogramChart;
 import umontreal.ssj.probdist.*;
 import umontreal.ssj.stat.Tally;
+import umontreal.ssj.stat.TallyStore;
+
 import java.io.*;
 import java.util.StringTokenizer;
 
@@ -15,9 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
-public class CallCenter2 {
-
-   static final double HOUR = 3600.0;  // Time is in seconds. 
+public class CallCenter2<PlotOrientation> {
 
    ArrayList<RandomVariateGen> genArr = new ArrayList<RandomVariateGen>();
    ArrayList<RandomVariateGen> genServ = new ArrayList<RandomVariateGen>();
@@ -35,17 +37,18 @@ public class CallCenter2 {
    ArrayList<LinkedList<Agents>> nBusyAgent = new ArrayList<LinkedList<Agents>>();
    ArrayList<LinkedList<Agents>> nFreeAgent = new ArrayList<LinkedList<Agents>>();
    
-    Double [][] AgentsOccupations ;
+    Double [][] AgentsOccupations = new Double [2][];
 
    
    ArrayList<LinkedList<Call>> waitList = new ArrayList<LinkedList<Call>>();
    
    Tally CallWaits1     = new Tally ("Waiting times1");
    Tally CallWaits2     = new Tally ("Waiting times2");
-   Accumulate totWait1  = new Accumulate ("Size of queue1");
-   Accumulate totWait2  = new Accumulate ("Size of queue2");
-   
    Tally [] Callwait= {CallWaits1,CallWaits2};
+   
+   TallyStore occupation1     = new TallyStore ("occupation time1");
+   TallyStore occupation2     = new TallyStore ("occupation time2");
+   TallyStore [] occupation= {occupation1,occupation2};
    
    Double s=20.0/60.0;
    int []  abandons= {0,0};
@@ -53,22 +56,20 @@ public class CallCenter2 {
    int nAgents2=6;
    int []nAgents= {31,6};           // Number of agents in current period.
    int [] nBusys= {0,0};             // Number of agents occupied;
-   int [] nArrivals= {0,0};         // Number of arrivals today;         // Number of abandonments during the day.
+   int [] nArrivals= {0,0};         // Number of arrivals today;        
    int [] nGoodQoS= {0,0};          // Number of waiting times less than s today.
-   double [] nCallsExpected = {0,0}; // Expected number of calls per day.
+   Double []busynessTime= {0.0,0.0};
    
    Tally statArrivals0 = new Tally ("Number of arrivals per day");
    Tally statWaits    = new Tally ("Average waiting time per customer");
-   Tally statWaitsDay = new Tally ("Waiting times within a day");
+   Tally statWaitsDay0 = new Tally ("Waiting times within a day");
    Tally statGoodQoS0  = new Tally ("Proportion of waiting times < s");
    Tally statAbandon0  = new Tally ("Proportion of calls lost");
    
    Tally statArrivals1 = new Tally ("Number of arrivals per day");
+   Tally statWaitsDay1 = new Tally ("Waiting times within a day");
    Tally statGoodQoS1  = new Tally ("Proportion of waiting times < s");
    Tally statAbandon1  = new Tally ("Proportion of calls lost");
-
-
-   //Event [] nextArrival = {new Arrival(0),new Arrival(1)};           // The next Arrival event.
 
    public CallCenter2 (Double [] lambda, Double [] mu, Double [] nu) throws IOException {
 	   
@@ -80,6 +81,7 @@ public class CallCenter2 {
 	   
 	   nFreeAgent.add(0,nFreeAgents1);
 	   nFreeAgent.add(1,nFreeAgents2);
+	  
 	   
 	   for(int i=0; i<2;i++) {
 		   genArr.add(i,new ExponentialGen (new MRG32k3a(), lambda[i]));
@@ -92,12 +94,12 @@ public class CallCenter2 {
 	   
 	   for(int i=0; i<nAgents1;i++) {
 		   nFreeAgent.get(0).addLast(new Agents(0,i));
-		   //AgentsOccupations[0]= new Double [nAgents1];
+		   AgentsOccupations[0]= new Double [nAgents1];
 	   }
 	   
 	   for(int i=0; i<nAgents2;i++) {
 		   nFreeAgent.get(1).addLast(new Agents(1,i));
-		   //AgentsOccupations[1]= new Double [nAgents2];
+		   AgentsOccupations[1]= new Double [nAgents2];
 		   
 	   }
 	   
@@ -117,16 +119,20 @@ public class CallCenter2 {
         	Agents agent = nFreeAgent.get(type-1).removeFirst();
         	serviceTime = genServ.get(servTimeGen(type-1,agent.type)).nextDouble(); // Generate service time.
         	nBusyAgent.get(agent.type).addLast(agent);
+        	agent.busyness = agent.busyness+ serviceTime;
+        	busynessTime[agent.type] +=serviceTime;
+        	//AgentsOccupations[agent.type][agent.number]=serviceTime;
         	
-            //nBusys[type-1]++;
-            Callwait[type-1].add (0.0);
+        	TallyStore occupation1     = new TallyStore ("occupation time");            Callwait[type-1].add (0.0);
             new CallCompletion(type-1,agent).schedule (serviceTime);
          }
          else if(nBusyAgent.get(type%2).size() < nAgents[type%2]) {
         	Agents agent = nFreeAgent.get(type%2).removeFirst();
          	serviceTime = genServ.get(servTimeGen(type%2,agent.type)).nextDouble(); // Generate service time.
         	nBusyAgent.get(agent.type).addLast(agent);
-        	 
+        	agent.busyness = agent.busyness+ serviceTime;
+        	busynessTime[agent.type] +=serviceTime;
+        	//AgentsOccupations[agent.type][agent.number]=serviceTime;
         	 //nBusys[type%2]++;
              Callwait[type%2].add (0.0);
              new CallCompletion(type-1,agent).schedule (serviceTime);	 
@@ -147,6 +153,9 @@ public class CallCenter2 {
          else {
          	//serviceTime = genServ.get(servTimeGen(type-1,Agent.type)).nextDouble(); // Generate service time.
             nBusyAgent.get(Agent.type).addLast(Agent);
+            //AgentsOccupations[Agent.type][Agent.number]=serviceTime;
+            Agent.busyness = Agent.busyness+ serviceTime;
+            busynessTime[Agent.type] +=serviceTime;
             new CallCompletion(type-1,Agent).schedule (serviceTime);
          }
          if (wait < s) nGoodQoS[type-1]++;
@@ -164,6 +173,7 @@ public class CallCenter2 {
 	   int type;
 	   int number;
 	   String name;
+	   Double busyness=0.0;
 	   public Agents(int type,int number) {
 		   this.type= type;
 		   this.number=number;
@@ -224,7 +234,8 @@ public class CallCenter2 {
 
    public void simulateOneDay (double timeHorizon) { 
       Sim.init();       
-      statWaitsDay.init();
+//      statWaitsDay0.init();
+//      statWaitsDay1.init();
       new EndOfSim().schedule (timeHorizon);
       new Arrival(0).schedule (genArr.get(0).nextDouble());
       new Arrival(1).schedule (genArr.get(1).nextDouble());
@@ -234,13 +245,20 @@ public class CallCenter2 {
       statArrivals0.add ((double)nArrivals[0]);
       statAbandon0.add ((double)abandons[0]);
       statGoodQoS0.add ((double)nGoodQoS[0]);
+      statWaitsDay0.add(Callwait[0].sum());
+      occupation1.add((double)busynessTime[0]);
+      
       
       statArrivals1.add ((double)nArrivals[1]);
       statAbandon1.add ((double)abandons[1]);
       statGoodQoS1.add ((double)nGoodQoS[1]);
+      statWaitsDay1.add(Callwait[1].sum());
+      occupation2.add((double)busynessTime[1]);
    }
+   
+   public class Histogram {
 
-
+	}
 
    static public void main (String[] args) throws IOException { 
 	  Double [] lambda= {6.0,0.6};
@@ -252,14 +270,19 @@ public class CallCenter2 {
       System.out.println (
          cc.statArrivals0.reportAndCIStudent (0.9) +
          cc.statGoodQoS0.reportAndCIStudent (0.9) +
-         cc.statAbandon0.reportAndCIStudent (0.9)); 
+         cc.statAbandon0.reportAndCIStudent (0.9)+
+         cc.statWaitsDay0.report()
+         ); 
+        
       
       System.out.println("=========================================================================");
-      System.out.println(cc.nArrivals[0]);
       
       System.out.println (
     	         cc.statArrivals1.reportAndCIStudent (0.9) +
     	         cc.statGoodQoS1.reportAndCIStudent (0.9) +
-    	         cc.statAbandon1.reportAndCIStudent (0.9)); 
+    	         cc.statAbandon1.reportAndCIStudent (0.9)+
+    	         cc.statWaitsDay1.report()
+    	         );
+                 
    }
 }
