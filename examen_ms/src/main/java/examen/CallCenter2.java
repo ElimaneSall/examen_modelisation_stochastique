@@ -11,9 +11,7 @@ import umontreal.ssj.stat.TallyStore;
 import java.io.*;
 import java.util.StringTokenizer;
 
-import examen.QueueEv.Arrival;
-import examen.QueueEv.EndOfSim;
-import examen.QueueEv.initAccumulate;
+
 
 import java.util.ArrayList;
 import java.util.LinkedList;
